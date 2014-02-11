@@ -31,7 +31,7 @@ setup(
     platforms=['OS Independent'],
     classifiers=CLASSIFIERS,
     install_requires=[
-        'Django>=1.4,<1.6',
+        'Django>=1.4',
         'django-classy-tags>=0.3.4.1',
         'south>=0.7.2',
         'html5lib',
@@ -48,7 +48,7 @@ setup(
         'Pygments==1.5',
         'dj-database-url==0.2.1',
         'django-hvad',
-        'djangocms-text-ckeditor',
+        'djangocms-text-ckeditor>=2.1.1',
         'djangocms-column',
         'djangocms-style',
     ],

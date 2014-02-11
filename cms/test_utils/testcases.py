@@ -27,7 +27,7 @@ URL_CMS_PAGE_ADVANCED_CHANGE = urljoin(URL_CMS_PAGE, "%d/advanced-settings/")
 URL_CMS_PAGE_PERMISSION_CHANGE = urljoin(URL_CMS_PAGE, "%d/permission-settings/")
 URL_CMS_PAGE_CHANGE_LANGUAGE = URL_CMS_PAGE_CHANGE + "?language=%s"
 URL_CMS_PAGE_CHANGE_TEMPLATE = URL_CMS_PAGE_CHANGE + "change_template/"
-URL_CMS_PAGE_PUBLISH = URL_CMS_PAGE_CHANGE + "publish/"
+URL_CMS_PAGE_PUBLISH = URL_CMS_PAGE_CHANGE + "%s/publish/"
 URL_CMS_PAGE_DELETE = urljoin(URL_CMS_PAGE_CHANGE, "delete/")
 URL_CMS_PLUGIN_ADD = urljoin(URL_CMS_PAGE, "add-plugin/")
 URL_CMS_PLUGIN_EDIT = urljoin(URL_CMS_PAGE, "edit-plugin/")
@@ -78,11 +78,11 @@ def _collectWarnings(observeWarning, f, *args, **kwargs):
     return result
 
 
-class CMSTestCase(testcases.TestCase):
+class BaseCMSTestCase(object):
     counter = 1
 
     def _fixture_setup(self):
-        super(CMSTestCase, self)._fixture_setup()
+        super(BaseCMSTestCase, self)._fixture_setup()
         self.create_fixtures()
         activate("en")
 
@@ -93,7 +93,7 @@ class CMSTestCase(testcases.TestCase):
     def _post_teardown(self):
         # Needed to clean the menu keys cache, see menu.menu_pool.clear()
         menu_pool.clear()
-        super(CMSTestCase, self)._post_teardown()
+        super(BaseCMSTestCase, self)._post_teardown()
         set_current_user(None)
 
     def login_user_context(self, user):
@@ -110,9 +110,19 @@ class CMSTestCase(testcases.TestCase):
         Set `permissions` parameter to an iterable of permission codes to add
         custom permissios.
         """
-        user = User(username=username, email=username+'@django-cms.org',
-                    is_staff=is_staff, is_active=is_active, is_superuser=is_superuser)
-        user.set_password(username)
+        User = get_user_model()
+
+        fields = dict(email=username+'@django-cms.org',
+            is_staff=is_staff, is_active=is_active, is_superuser=is_superuser
+        )
+
+        # Check for special case where email is used as username
+        if(get_user_model().USERNAME_FIELD != 'email'):
+            fields[get_user_model().USERNAME_FIELD] = username
+
+        user = User(**fields)
+        
+        user.set_password(getattr(user, get_user_model().USERNAME_FIELD))
         user.save()
         if is_staff and not is_superuser and add_default_permissions:
             user.user_permissions.add(Permission.objects.get(codename='add_text'))
@@ -130,7 +140,9 @@ class CMSTestCase(testcases.TestCase):
 
     def get_superuser(self):
         try:
-            admin = get_user_model().objects.get(username="admin")
+            query = dict()
+            query[get_user_model().USERNAME_FIELD]="admin"
+            admin = get_user_model().objects.get(**query)
         except get_user_model().DoesNotExist:
             admin = self._create_user("admin", is_staff=True, is_superuser=True)
         return admin
@@ -158,15 +170,15 @@ class CMSTestCase(testcases.TestCase):
             'template': 'nav_playground.html',
             'parent': parent_id,
             'site': 1,
+            'pagepermission_set-TOTAL_FORMS': 0,
+            'pagepermission_set-INITIAL_FORMS': 0,
+            'pagepermission_set-MAX_NUM_FORMS': 0,
+            'pagepermission_set-2-TOTAL_FORMS': 0,
+            'pagepermission_set-2-INITIAL_FORMS': 0,
+            'pagepermission_set-2-MAX_NUM_FORMS': 0
         }
         # required only if user haves can_change_permission
-        page_data['pagepermission_set-TOTAL_FORMS'] = 0
-        page_data['pagepermission_set-INITIAL_FORMS'] = 0
-        page_data['pagepermission_set-MAX_NUM_FORMS'] = 0
-        page_data['pagepermission_set-2-TOTAL_FORMS'] = 0
-        page_data['pagepermission_set-2-INITIAL_FORMS'] = 0
-        page_data['pagepermission_set-2-MAX_NUM_FORMS'] = 0
-        self.counter = self.counter + 1
+        self.counter += 1
         return page_data
 
     
@@ -302,6 +314,8 @@ class CMSTestCase(testcases.TestCase):
         request._dont_enforce_csrf_checks = not enforce_csrf_checks
         if page:
             request.current_page = page
+        else:
+            request.current_page = None
 
         class MockStorage(object):
 
@@ -359,6 +373,14 @@ class CMSTestCase(testcases.TestCase):
 
         return result
     assertWarns = failUnlessWarns
+
+
+class CMSTestCase(BaseCMSTestCase, testcases.TestCase):
+    pass
+
+
+class TransactionCMSTestCase(BaseCMSTestCase, testcases.TransactionTestCase):
+    pass
 
 
 class SettingsOverrideTestCase(CMSTestCase):

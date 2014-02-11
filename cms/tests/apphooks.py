@@ -14,11 +14,9 @@ from cms.utils.compat.type_checks import string_types
 from cms.utils.i18n import force_language
 from django.core.urlresolvers import clear_url_caches, reverse
 
-
 APP_NAME = 'SampleApp'
 NS_APP_NAME = 'NamespacedApp'
 APP_MODULE = "cms.test_utils.project.sampleapp.cms_app"
-
 
 class ApphooksTestCase(CMSTestCase):
     def setUp(self):
@@ -49,6 +47,7 @@ class ApphooksTestCase(CMSTestCase):
             #       directly in the root urlconf.
             # '...',
             'cms.test_utils.project.second_cms_urls_for_apphook_tests',
+            'cms.test_utils.project.urls_for_apphook_tests',
             settings.ROOT_URLCONF,
         ]
 
@@ -66,15 +65,16 @@ class ApphooksTestCase(CMSTestCase):
         page = create_page("home", "nav_playground.html", "en",
                            created_by=superuser, published=True)
         create_title('de', page.get_title(), page)
+        page.publish('de')
         child_page = create_page("child_page", "nav_playground.html", "en",
                                  created_by=superuser, published=True, parent=page)
         create_title('de', child_page.get_title(), child_page)
+        child_page.publish('de')
         child_child_page = create_page("child_child_page", "nav_playground.html",
                                        "en", created_by=superuser, published=True, parent=child_page, apphook=apphook,
                                        apphook_namespace=namespace)
         create_title("de", child_child_page.get_title(), child_child_page)
-
-        child_child_page.publish()
+        child_child_page.publish('de')
         # publisher_public is set to draft on publish, issue with onetoone reverse
         child_child_page = self.reload(child_child_page)
 
@@ -129,8 +129,9 @@ class ApphooksTestCase(CMSTestCase):
             english_title = page.title_set.all()[0]
             self.assertEquals(english_title.language, 'en')
             create_title("de", "aphooked-page-de", page)
-            self.assertTrue(page.publish())
-            self.assertTrue(blank_page.publish())
+            self.assertTrue(page.publish('en'))
+            self.assertTrue(page.publish('de'))
+            self.assertTrue(blank_page.publish('en'))
             with force_language("en"):
                 response = self.client.get(self.get_pages_root())
             self.assertTemplateUsed(response, 'sampleapp/home.html')
@@ -147,7 +148,8 @@ class ApphooksTestCase(CMSTestCase):
             page = create_page("apphooked-page", "nav_playground.html", "en",
                                created_by=superuser, published=True, apphook="SampleApp")
             create_title("de", "aphooked-page-de", page)
-            self.assertTrue(page.publish())
+            self.assertTrue(page.publish('de'))
+            self.assertTrue(page.publish('en'))
 
             self.reload_urls()
 
@@ -174,11 +176,9 @@ class ApphooksTestCase(CMSTestCase):
             self.assertContains(response, en_title.title)
             with force_language("de"):
                 path = reverse('sample-settings')
-
             request = self.get_request(path)
             request.LANGUAGE_CODE = 'de'
-            attached_to_page = applications_page_check(request,
-                                                       path=path[1:])  # strip leading slash and language prefix
+            attached_to_page = applications_page_check(request, path=path[1:])  # strip leading slash and language prefix
             self.assertEquals(attached_to_page.pk, de_title.page.pk)
 
             response = self.client.get(path)
@@ -189,11 +189,17 @@ class ApphooksTestCase(CMSTestCase):
             apphook_pool.clear()
 
     def test_get_page_for_apphook_on_preview_or_edit(self):
-        superuser = get_user_model().objects.create_superuser('admin', 'admin@admin.com', 'admin')
+
+        if get_user_model().USERNAME_FIELD == 'email':
+            superuser = get_user_model().objects.create_superuser('admin', 'admin@admin.com', 'admin@admin.com')
+        else:    
+            superuser = get_user_model().objects.create_superuser('admin', 'admin@admin.com', 'admin')
+        
         page = create_page("home", "nav_playground.html", "en",
                            created_by=superuser, published=True, apphook=APP_NAME)
         create_title('de', page.get_title(), page)
-        page.publish()
+        page.publish('en')
+        page.publish('de')
         public_page = page.get_public_object()
 
         with self.login_user_context(superuser):
@@ -273,15 +279,14 @@ class ApphooksTestCase(CMSTestCase):
             de_title = Title.objects.get(page=public_de_title.page.publisher_draft, language="de")
             de_title.slug = "de"
             de_title.save()
-            de_title.page.publish()
+            de_title.page.publish('de')
 
             page2 = create_page("page2", "nav_playground.html",
                                 "en", created_by=self.superuser, published=True, parent=de_title.page.parent,
                                 apphook=NS_APP_NAME,
                                 apphook_namespace="instance_2")
             de_title2 = create_title("de", "de_title", page2, slug="slug")
-
-            page2.publish()
+            page2.publish('de')
             clear_app_resolvers()
             clear_url_caches()
 
@@ -422,6 +427,7 @@ class ApphooksPageLanguageUrlTestCase(SettingsOverrideTestCase):
 
         if APP_MODULE in sys.modules:
             del sys.modules[APP_MODULE]
+        self.reload_urls()
 
     def tearDown(self):
         clear_app_resolvers()
@@ -430,6 +436,22 @@ class ApphooksPageLanguageUrlTestCase(SettingsOverrideTestCase):
         if APP_MODULE in sys.modules:
             del sys.modules[APP_MODULE]
 
+    def reload_urls(self):
+        from django.conf import settings
+
+        url_modules = [
+            'cms.urls',
+            'cms.test_utils.project.second_cms_urls_for_apphook_tests',
+            settings.ROOT_URLCONF,
+        ]
+
+        clear_app_resolvers()
+        clear_url_caches()
+
+        for module in url_modules:
+            if module in sys.modules:
+                del sys.modules[module]
+
     def test_page_language_url_for_apphook(self):
 
         apphook_pool.clear()
@@ -437,17 +459,20 @@ class ApphooksPageLanguageUrlTestCase(SettingsOverrideTestCase):
         page = create_page("home", "nav_playground.html", "en",
                            created_by=superuser)
         create_title('de', page.get_title(), page)
-        page.publish()
+        page.publish('en')
+        page.publish('de')
 
         child_page = create_page("child_page", "nav_playground.html", "en",
                                  created_by=superuser, parent=page)
         create_title('de', child_page.get_title(), child_page)
-        child_page.publish()
+        child_page.publish('en')
+        child_page.publish('de')
 
         child_child_page = create_page("child_child_page", "nav_playground.html",
                                        "en", created_by=superuser, parent=child_page, apphook='SampleApp')
         create_title("de", '%s_de' % child_child_page.get_title(), child_child_page)
-        child_child_page.publish()
+        child_child_page.publish('en')
+        child_child_page.publish('de')
 
         # publisher_public is set to draft on publish, issue with one to one reverse
         child_child_page = self.reload(child_child_page)

@@ -7,10 +7,10 @@ from cms.models import Page, PagePermission, GlobalPagePermission, PageUser
 from cms.utils.conf import get_cms_setting
 from cms.utils.helpers import classproperty
 from cms.utils.permissions import get_user_permission_level
+from cms.compat import get_user_model
 from django.contrib import admin
 from django.contrib.auth.models import User
 from django.utils.translation import ugettext as _
-
 
 PERMISSION_ADMIN_INLINES = []
 
@@ -70,7 +70,7 @@ class PagePermissionInlineAdmin(TabularInline):
             if not obj.has_move_page_permission(request):
                 exclude.append('can_move_page')
         formset_cls = super(PagePermissionInlineAdmin, self
-        ).get_formset(request, obj=None, exclude=exclude, *kwargs)
+        ).get_formset(request, obj=None, exclude=exclude, **kwargs)
         qs = self.queryset(request)
         if obj is not None:
             qs = qs.filter(page=obj)
@@ -117,7 +117,7 @@ class GlobalPagePermissionAdmin(admin.ModelAdmin):
 
     form = GlobalPagePermissionAdminForm
 
-    search_fields = ('user__username', 'user__first_name', 'user__last_name', 'group__name')
+    search_fields = ('user__'+get_user_model().USERNAME_FIELD, 'user__first_name', 'user__last_name', 'group__name')
 
     exclude = []
 

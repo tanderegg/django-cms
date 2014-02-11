@@ -62,8 +62,17 @@ def get_placeholder_conf(setting, placeholder, template=None, default=None):
             if not conf:
                 continue
             value = conf.get(setting)
-            if value:
+            if value is not None:
                 return value
+            inherit = conf.get('inherit')
+            if inherit :
+                if ' ' in inherit:
+                    inherit = inherit.split(' ')
+                else:
+                    inherit = (None, inherit,)
+                value = get_placeholder_conf(setting, inherit[1], inherit[0], default)
+                if value is not None:
+                    return value
     return default
 
 

@@ -142,15 +142,18 @@ class PythonAPITests(TestCase):
 
     def test_assign_user_to_page_nothing(self):
         page = create_page(**self._get_default_create_page_arguments())
-        user = get_user_model().objects.create(username='user', email='user@django-cms.org',
-                                   is_staff=True, is_active=True)
+        user = get_user_model().objects.create_user(username='user', email='user@django-cms.org',
+                                   password='user')
+        user.is_staff = True
         request = AttributeObject(user=user)
         self.assertFalse(page.has_change_permission(request))
 
     def test_assign_user_to_page_single(self):
         page = create_page(**self._get_default_create_page_arguments())
-        user = get_user_model().objects.create(username='user', email='user@django-cms.org',
-                                   is_staff=True, is_active=True)
+        user = get_user_model().objects.create_user(username='user', email='user@django-cms.org',
+                                   password='user')
+        user.is_staff=True
+        user.save()
         request = AttributeObject(user=user)
         assign_user_to_page(page, user, can_change=True)
         self.assertFalse(page.has_change_permission(request))
@@ -164,8 +167,10 @@ class PythonAPITests(TestCase):
 
     def test_assign_user_to_page_all(self):
         page = create_page(**self._get_default_create_page_arguments())
-        user = get_user_model().objects.create(username='user', email='user@django-cms.org',
-                                   is_staff=True, is_active=True)
+        user = get_user_model().objects.create_user(username='user', email='user@django-cms.org',
+                                   password='user')
+        user.is_staff=True
+        user.save()
         request = AttributeObject(user=user)
         assign_user_to_page(page, user, grant_all=True)
         self.assertFalse(page.has_change_permission(request))
@@ -179,7 +184,12 @@ class PythonAPITests(TestCase):
         self.assertTrue(page.has_add_permission(request))
 
     def test_page_overwrite_url_default(self):
+        self.assertEqual(Page.objects.all().count(), 0)
+        home = create_page('home', 'nav_playground.html', 'en', published=True)
+        self.assertTrue(home.is_published('en', True))
+        self.assertTrue(home.is_home)
         page = create_page(**self._get_default_create_page_arguments())
+        self.assertFalse(page.is_home)
         self.assertFalse(page.get_title_obj_attribute('has_url_overwrite'))
         self.assertEqual(page.get_title_obj_attribute('path'), 'test')
 

@@ -3,7 +3,7 @@ import sys
 from cms.apphook_pool import apphook_pool
 from cms.compat import get_user_model
 from cms.forms.widgets import UserSelectAdminWidget
-from cms.models import Page, PagePermission, PageUser, ACCESS_PAGE, PageUserGroup, titlemodels, Title
+from cms.models import Page, PagePermission, PageUser, ACCESS_PAGE, PageUserGroup, titlemodels
 from cms.utils.conf import get_cms_setting
 from cms.utils.i18n import get_language_tuple, get_language_list
 from cms.utils.mail import mail_page_user_change
@@ -26,6 +26,8 @@ from menus.menu_pool import menu_pool
 
 
 def get_permission_acessor(obj):
+    User = get_user_model()
+    
     if isinstance(obj, (PageUser, User,)):
         rel_name = 'user_permissions'
     else:
@@ -117,7 +119,7 @@ class PageForm(forms.ModelForm):
         if site and not is_valid_page_slug(page, parent, lang, slug, site):
             self._errors['slug'] = ErrorList([_('Another page with this slug already exists')])
             del cleaned_data['slug']
-        if self.instance and self.instance.published and page.title_set.count():
+        if self.instance and page.title_set.count():
             #Check for titles attached to the page makes sense only because
             #AdminFormsTests.test_clean_overwrite_url validates the form with when no page instance available
             #Looks like just a theoretical corner case
@@ -153,10 +155,26 @@ class PageForm(forms.ModelForm):
         return language
 
 
-class PublicationForm(forms.ModelForm):
+class PublicationDatesForm(forms.ModelForm):
+    language = forms.ChoiceField(label=_("Language"), choices=get_language_tuple(),
+                                 help_text=_('The current language of the content fields.'))
+
+    def __init__(self, *args, **kwargs):
+        # Dates are not language dependent, so let's just fake the language to
+        # make the ModelAdmin happy
+        super(PublicationDatesForm, self).__init__(*args, **kwargs)
+        self.fields['language'].widget = HiddenInput()
+        self.fields['site'].widget = HiddenInput()
+        site_id = self.fields['site'].initial
+
+        languages = get_language_tuple(site_id)
+        self.fields['language'].choices = languages
+        if not self.fields['language'].initial:
+            self.fields['language'].initial = get_language()
+
     class Meta:
         model = Page
-        fields = ["publication_date", "publication_end_date"]
+        fields = ['site', 'publication_date', 'publication_end_date']
 
 
 class AdvancedSettingsForm(forms.ModelForm):
@@ -197,17 +215,23 @@ class AdvancedSettingsForm(forms.ModelForm):
                         pk=self.instance.pk).count():
                     self._errors['reverse_id'] = self.error_class(
                         [_('A page with this reverse URL id exists already.')])
-        apphook = cleaned_data['application_urls']
-        namespace = cleaned_data['application_namespace']
+        apphook = cleaned_data.get('application_urls', None)
+        namespace = cleaned_data.get('application_namespace', None)
         if apphook:
             apphook_pool.discover_apps()
             if apphook_pool.apps[apphook].app_name and not namespace:
                 self._errors['application_urls'] = ErrorList(
-                    [_('You selected an apphook with an "app_name". You must enter a namespace.')])
+                    [_('You selected an apphook with an "app_name". You must enter a instance name.')])
         if namespace and not apphook:
             self._errors['application_namespace'] = ErrorList(
-                [_("If you enter a namespace you need an application url as well.")])
+                [_("If you enter an instance name you need an application url as well.")])
         return cleaned_data
+
+    def clean_application_namespace(self):
+        namespace = self.cleaned_data['application_namespace']
+        if namespace and Page.objects.filter(publisher_is_draft=True, application_namespace=namespace).exclude(pk=self.instance.pk).count():
+            raise ValidationError(_('A instance name with this name already exists.'))
+        return namespace
 
     def clean_overwrite_url(self):
         if 'overwrite_url' in self.fields:
@@ -484,9 +508,3 @@ class PageUserGroupForm(GenericCmsPermissionForm):
         save_permissions(self.cleaned_data, group)
 
         return group
-
-
-class PageTitleForm(forms.ModelForm):
-    class Meta:
-        model = Title
-        fields = ('title', )

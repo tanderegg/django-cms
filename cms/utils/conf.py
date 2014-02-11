@@ -187,6 +187,10 @@ def _ensure_languages_settings(languages):
 
 
 def get_languages():
+    if not isinstance(settings.SITE_ID, int):
+        raise ImproperlyConfigured(
+            "SITE_ID must be an integer"
+        )
     if not settings.USE_I18N:
         return _ensure_languages_settings(
             {settings.SITE_ID: [{'code': settings.LANGUAGE_CODE, 'name': settings.LANGUAGE_CODE}]})
@@ -224,3 +228,14 @@ def get_cms_setting(name):
         return COMPLEX[name]()
     else:
         return getattr(settings, 'CMS_%s' % name, DEFAULTS[name])
+
+
+def get_site_id(site):
+    from django.contrib.sites.models import Site
+    if isinstance(site, Site):
+        return site.id
+    try:
+        return int(site)
+    except (TypeError, ValueError):
+        pass
+    return settings.SITE_ID

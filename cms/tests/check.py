@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import with_statement
+import os
 import unittest
 from cms.test_utils.util.context_managers import SettingsOverride
 from cms.utils.check import FileOutputWrapper, check, FileSectionWrapper
@@ -8,6 +9,7 @@ from cms.models.placeholdermodel import Placeholder
 from djangocms_text_ckeditor.cms_plugins import TextPlugin
 from cms.test_utils.project.pluginapp.plugins.manytomany_rel.models import ArticlePluginModel
 from cms.api import add_plugin
+from django.template import TemplateSyntaxError, base
 from django.test import TestCase
 
 class TestOutput(FileOutputWrapper):
@@ -56,8 +58,14 @@ class CheckTests(unittest.TestCase, CheckAssertMixin):
             self.assertCheck(True, warnings=1, errors=0)
 
     def test_no_sekizai(self):
-        with SettingsOverride(INSTALLED_APPS=[]):
-            self.assertCheck(False, errors=2)
+        with SettingsOverride(INSTALLED_APPS=['cms', 'menus']):
+            old_libraries = base.libraries
+            base.libraries = {}
+            old_templatetags_modules = base.templatetags_modules
+            base.templatetags_modules = []
+            self.assertRaises(TemplateSyntaxError, check, TestOutput())
+            base.libraries = old_libraries
+            base.templatetags_modules = old_templatetags_modules
 
     def test_no_sekizai_template_context_processor(self):
         with SettingsOverride(TEMPLATE_CONTEXT_PROCESSORS=[]):
@@ -96,6 +104,23 @@ class CheckTests(unittest.TestCase, CheckAssertMixin):
         del ArticlePluginModel.copy_relations
         self.assertCheck(True, warnings=1, errors=0)
         ArticlePluginModel.copy_relations = copy_rel
+
+    def test_placeholder_tag_deprecation(self):
+        self.assertCheck(True, warnings=0, errors=0)
+        alt_dir = os.path.join(
+            os.path.dirname(__file__),
+            '..',
+            'test_utils',
+            'project',
+            'alt_templates'
+        )
+        with SettingsOverride(TEMPLATE_DIRS=[alt_dir], CMS_TEMPLATES=[]):
+            self.assertCheck(True, warnings=1, errors=0)
+
+    def test_non_numeric_site_id(self):
+        self.assertCheck(True, warnings=0, errors=0)
+        with SettingsOverride(SITE_ID='broken'):
+            self.assertCheck(False, warnings=0, errors=1)
 
 
 class CheckWithDatabaseTests(TestCase, CheckAssertMixin):

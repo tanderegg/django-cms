@@ -77,11 +77,19 @@ Example::
             'extra_context': {"width":640},
             'name': gettext("Content"),
             'language_fallback': True,
+            'default_plugins':[
+                {
+                    'plugin_type':'TextPlugin', 
+                    'values':{
+                        'body':'<p>Lorem ipsum dolor sit amet...</p>'
+                    }, 
+                },
+            ]
             'child_classes': {
                 'TextPlugin': ['PicturePlugin', 'LinkPlugin'],
             },
             'parent_classes': {
-                'LinkPlugin': ['TextPlugin', 'StackPlugin'],
+                'LinkPlugin': ['TextPlugin',],
             }
         },
         'right-column': {
@@ -101,7 +109,8 @@ Example::
             }.
         },
         'base.html content': {
-            "plugins": ['TextPlugin', 'PicturePlugin', 'TeaserPlugin']
+            "plugins": ['TextPlugin', 'PicturePlugin', 'TeaserPlugin'],
+            'inherit': 'content',
         },
     }
 
@@ -135,6 +144,71 @@ plugins, as shown above with ``base.html content``.
     it falls back to the fallback languages as specified in :setting:`CMS_LANGUAGES`.
     Defaults to ``False`` to maintain pre-3.0 behavior.
 
+.. _placeholder_default_plugins:
+
+``default_plugins``
+    You can specify the list of default plugins which will be automagically 
+    added when the placeholder will be created (or rendered).
+    Each element of the list is a dictionary with following keys :
+
+    ``plugin_type`` 
+        It's the plugin type to add to the placeholder
+        Exemple : 'TextPlugin'
+
+    ``values``
+        Dictionnary to use for the plugin creation.
+        It depends on the ``plugin_type``. See the documentation of each 
+        plugin type to see which parameters are required and available.
+        Exemple for a Textplugin :
+        {'body':'<p>Lorem ipsum</p>'}
+        Exemple for a LinkPlugin :
+        {'name':'Django-CMS','url':'https://www.django-cms.org'}
+
+    ``children``
+        It is a list of dictionnaries to configure default plugins 
+        to add as children for the current plugin (it must accepts children). 
+        Each dictionnary accepts same args than dictionnaries of 
+        ``default_plugins`` : ``plugin_type``, ``values``, ``children`` 
+        (yes, it is recursive).
+
+    Complete exemple of default_plugins usage::
+
+        CMS_PLACEHOLDER_CONF = {
+            'content': {
+                'name' : _('Content'),
+                'plugins': ['TextPlugin', 'LinkPlugin'],
+                'default_plugins':[
+                    {
+                        'plugin_type':'TextPlugin', 
+                        'values':{
+                            'body':'<p>Great websites : %(_tag_child_1)s and %(_tag_child_2)s</p>'
+                        },
+                        'children':[
+                            {
+                                'plugin_type':'LinkPlugin',
+                                'values':{
+                                    'name':'django', 
+                                    'url':'https://www.djangoproject.com/'
+                                },
+                            },
+                            {
+                                'plugin_type':'LinkPlugin',
+                                'values':{
+                                    'name':'django-cms', 
+                                    'url':'https://www.django-cms.org'
+                                },
+                                # If using LinkPlugin from djangocms-link which
+                                # accepts children, you could add some grandchildren :
+                                # 'children' : [
+                                #     ...
+                                # ]
+                            },
+                        ]
+                    },
+                ]
+            }
+        }
+
 ``plugin_modules``
     A dictionary of plugins and custom module names to group plugin in the
     toolbar UI.
@@ -150,7 +224,12 @@ plugins, as shown above with ``base.html content``.
     A dictionary of plugin names with lists describing which plugins may contain
     each plugin. If not supplied, all plugins can be selected.
 
-
+``inherit``
+    Placeholder name or template name + placeholder name which inherit. In the
+    exemple, the configuration for "base.html content" inherits from "content"
+    and just overwrite the "plugins" setting to allow TeaserPlugin, thus you
+    have not to duplicate your "content"'s configuration.
+    
 .. setting:: CMS_PLUGIN_CONTEXT_PROCESSORS
 
 CMS_PLUGIN_CONTEXT_PROCESSORS
@@ -194,31 +273,6 @@ Example::
         'otherapp.cms_app.MyFancyApp',
         'sampleapp.cms_app.SampleApp',
     )
-
-********************
-Editor configuration
-********************
-
-The Wymeditor from :mod:`cms.plugins.text` plugin can take the same
-configuration as vanilla Wymeditor. Therefore you will need to learn 
-how to configure that. The best thing to do is to head 
-over to the `Wymeditor examples page 
-<http://files.wymeditor.org/wymeditor-1.0.0b2/examples/>`_
-in order to understand how Wymeditor works. 
-
-The :mod:`cms.plugins.text` plugin exposes several variables named
-WYM_* that correspond to the wym configuration. The simplest 
-way to get started with this is to go to ``cms/plugins/text/settings.py``
-and copy over the WYM_* variables and you will realize they 
-match one to one to Wymeditor's.
-
-Currently the following variables are available:
-
-* ``WYM_TOOLS``
-* ``WYM_CONTAINERS``
-* ``WYM_CLASSES``
-* ``WYM_STYLES``
-* ``WYM_STYLESHEET``
 
 *************
 I18N and L10N
@@ -297,7 +351,7 @@ Every language node needs at least a ``code`` and a ``name`` property. ``code``
 is the ISO 2 code for the language, and ``name`` is the verbose name of the
 language.
 
-.. note:: 
+.. note::
 
     With a gettext() lambda function you can make language names translatable.
     To enable this add ``gettext = lambda s: s`` at the beginning of your
@@ -610,7 +664,7 @@ CMS_MAX_PAGE_PUBLISH_REVERSIONS
 Default: ``25``
 
 If `django-reversion`_ is installed everything you do with a page and all
-plugin changes will be saved in a revision. 
+plugin changes will be saved in a revision.
 
 In the page admin there is a ``History`` button to revert to previous version
 of a page. In the past, databases using django-reversion could grow huge. To
@@ -637,4 +691,3 @@ toolbar as import paths.
 
 .. _django-reversion: https://github.com/etianen/django-reversion
 .. _unihandecode.js: https://github.com/ojii/unihandecode.js
-

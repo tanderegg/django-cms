@@ -8,7 +8,6 @@ from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.sites.models import Site
 from django.db.models import Q
-from django.utils.translation import ugettext_lazy as _
 
 
 
@@ -294,8 +293,8 @@ def get_user_sites_queryset(user):
             # so he haves access to all sites
             return qs
     # add some pages if he has permission to add / change them
-    query |= Q(Q(page__pagepermission__user=user) | Q(page__pagepermission__group__user=user)) & \
-        (Q(Q(page__pagepermission__can_add=True) | Q(page__pagepermission__can_change=True)))
+    query |= Q(Q(djangocms_pages__pagepermission__user=user) | Q(djangocms_pages__pagepermission__group__user=user)) & \
+        (Q(Q(djangocms_pages__pagepermission__can_add=True) | Q(djangocms_pages__pagepermission__can_change=True)))
     return qs.filter(query).distinct()
 
 

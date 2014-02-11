@@ -5,9 +5,10 @@ from cms.test_utils.testcases import SettingsOverrideTestCase as TestCase
 
 from cms.extensions import *
 from cms.tests import AdminTestsBase
-from django.contrib.auth.models import Permission, User
+from django.contrib.auth.models import Permission
 from django.contrib.sites.models import Site
 from django.core.urlresolvers import reverse
+from cms.compat import get_user_model
 
 
 class ExtensionsTestCase(TestCase):
@@ -86,7 +87,7 @@ class ExtensionsTestCase(TestCase):
         page.mypageextension = page_extension
 
         # publish first time
-        page.publish()
+        page.publish('en')
         self.assertEqual(page_extension.extra, page.publisher_public.mypageextension.extra)
 
         # change and publish again
@@ -94,7 +95,7 @@ class ExtensionsTestCase(TestCase):
         page_extension = page.mypageextension
         page_extension.extra = 'page extension 1 - changed'
         page_extension.save()
-        page.publish()
+        page.publish('en')
 
         # delete
         page_extension.delete()
@@ -108,7 +109,7 @@ class ExtensionsTestCase(TestCase):
         page.mytitleextension = title_extension
 
         # publish first time
-        page.publish()
+        page.publish('en')
         # import ipdb; ipdb.set_trace()
         self.assertEqual(title_extension.extra_title, page.publisher_public.get_title_obj().mytitleextension.extra_title)
 
@@ -118,7 +119,7 @@ class ExtensionsTestCase(TestCase):
         title_extension = title.mytitleextension
         title_extension.extra_title = 'title extension 1 - changed'
         title_extension.save()
-        page.publish()
+        page.publish('en')
 
         # delete
         title_extension.delete()
@@ -127,8 +128,15 @@ class ExtensionsTestCase(TestCase):
 
 class ExtensionAdminTestCase(AdminTestsBase):
     def setUp(self):
+        User = get_user_model()
+        
         self.admin, self.normal_guy = self._get_guys()
-        self.no_page_permission_user = User.objects.create_user('no_page_permission', 'test2@test.com', 'no_page_permission')
+
+        if get_user_model().USERNAME_FIELD == 'email':
+            self.no_page_permission_user = User.objects.create_user('no_page_permission', 'test2@test.com', 'test2@test.com')
+        else:
+            self.no_page_permission_user = User.objects.create_user('no_page_permission', 'test2@test.com', 'no_page_permission')
+        
         self.no_page_permission_user.is_staff = True
         self.no_page_permission_user.is_active = True
         self.no_page_permission_user.save()

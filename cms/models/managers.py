@@ -153,10 +153,10 @@ class TitleManager(PublisherManager):
 
     # created new public method to meet test case requirement and to get a list of titles for published pages
     def public(self):
-        return self.get_query_set().filter(page__publisher_is_draft=False, page__published=True)
+        return self.get_query_set().filter(publisher_is_draft=False, published=True)
 
     def drafts(self):
-        return self.get_query_set().filter(page__publisher_is_draft=True)
+        return self.get_query_set().filter(publisher_is_draft=True)
 
     def set_or_create(self, request, page, form, language):
         """
@@ -327,19 +327,26 @@ class PagePermissionManager(BasicPagePermissionManager):
         """
         # permissions should be managed on the draft page only
         page = page.get_draft_object()
-        from cms.models import ACCESS_DESCENDANTS, ACCESS_CHILDREN, \
-            ACCESS_PAGE_AND_CHILDREN, ACCESS_PAGE_AND_DESCENDANTS, ACCESS_PAGE
+        from cms.models import (ACCESS_DESCENDANTS, ACCESS_CHILDREN,
+            ACCESS_PAGE_AND_CHILDREN, ACCESS_PAGE_AND_DESCENDANTS, ACCESS_PAGE)
 
-        parents = Q(page__tree_id=page.tree_id, page__lft__lte=page.lft, page__rght__gte=page.rght) & (
+        if page.level is None or page.lft is None or page.rght is None:
+            raise ValueError("Cannot use unsaved page for permission lookup, missing MPTT attributes.")
+
+        parents = Q(page__tree_id=page.tree_id) & (
             Q(grant_on=ACCESS_DESCENDANTS) | Q(grant_on=ACCESS_PAGE_AND_DESCENDANTS))
         direct_parents = Q(
             page__tree_id=page.tree_id,
-            page__lft__lte=page.lft,
-            page__rght__gte=page.rght,
-            page__level=page.level - 1) & \
-            (Q(grant_on=ACCESS_CHILDREN) | Q(grant_on=ACCESS_PAGE_AND_CHILDREN))
+            page__level=page.level - 1) & (
+                             Q(grant_on=ACCESS_CHILDREN) | Q(grant_on=ACCESS_PAGE_AND_CHILDREN)
+                         )
         page_qs = Q(page=page) & (
             Q(grant_on=ACCESS_PAGE_AND_DESCENDANTS) | Q(grant_on=ACCESS_PAGE_AND_CHILDREN) | Q(grant_on=ACCESS_PAGE))
+
+        parents = parents & Q(page__lft__lte=page.lft)
+        direct_parents = direct_parents & Q(page__lft__lte=page.lft)
+        parents = parents & Q(page__rght__gte=page.rght)
+        direct_parents = direct_parents & Q(page__rght__gte=page.rght)
 
         query = (parents | direct_parents | page_qs)
         return self.filter(query).order_by('page__level')
@@ -407,27 +414,34 @@ class PagePermissionsPermissionManager(models.Manager):
         """
         return self.__get_id_list(user, site, "can_view")
 
-    '''
-    def get_change_list_id_list(self, user, site):
-        """This is used just in admin now. Gives all ids where user haves can_edit
-        and can_add merged together.
+    def get_restricted_id_list(self, site):
+        from cms.models import (GlobalPagePermission, PagePermission,
+            MASK_CHILDREN, MASK_DESCENDANTS, MASK_PAGE)
 
-        There is for sure a better way how to do this over sql, need to be
-        optimized...
-        """
-        can_change = self.get_change_id_list(user)
-        can_add = self.get_add_id_list(user)
-        if can_change is can_add:
-            # GRANT_ALL case
-            page_id_list = can_change
-        else:
-            permission_set = filter(lambda i: not i is PagePermissionsPermissionManager.GRANT_ALL, [can_change, can_add])
-            if len(permission_set) is 1:
-                page_id_list = permission_set[0]
-            else:
-                page_id_list = list(set(can_change).union(set(can_add)))
-        return page_id_list
-    '''
+        global_permissions = GlobalPagePermission.objects.all()
+        if global_permissions.filter(**{
+            'can_view': True, 'sites__in': [site]
+        }).exists():
+            # user or his group are allowed to do `attr` action
+            # !IMPORTANT: page permissions must not override global permissions
+            from cms.models import Page
+
+            return Page.objects.filter(site=site).values_list('id', flat=True)
+            # for standard users without global permissions, get all pages for him or
+        # his group/s
+        qs = PagePermission.objects.filter(page__site=site, can_view=True).select_related('page')
+        qs.order_by('page__tree_id', 'page__level', 'page__lft')
+        # default is denny...
+        page_id_allow_list = []
+        for permission in qs:
+            if permission.grant_on & MASK_PAGE:
+                page_id_allow_list.append(permission.page.id)
+            if permission.grant_on & MASK_CHILDREN:
+                page_id_allow_list.extend(permission.page.get_children().values_list('id', flat=True))
+            elif permission.grant_on & MASK_DESCENDANTS:
+                page_id_allow_list.extend(permission.page.get_descendants().values_list('id', flat=True))
+                # store value in cache
+        return page_id_allow_list
 
     def __get_id_list(self, user, site, attr):
         from cms.models import (GlobalPagePermission, PagePermission,
@@ -455,7 +469,8 @@ class PagePermissionsPermissionManager(models.Manager):
             # for standard users without global permissions, get all pages for him or
         # his group/s
         qs = PagePermission.objects.with_user(user)
-        qs.order_by('page__tree_id', 'page__level', 'page__lft')
+        qs.filter(**{'page__site': site}).order_by('page__tree_id', 'page__level',
+                                                               'page__lft').select_related('page')
         # default is denny...
         page_id_allow_list = []
         for permission in qs:
@@ -470,10 +485,3 @@ class PagePermissionsPermissionManager(models.Manager):
                     # store value in cache
         set_permission_cache(user, attr, page_id_allow_list)
         return page_id_allow_list
-
-
-class PageModeratorStateManager(models.Manager):
-    def get_delete_actions(self):
-        from cms.models import PageModeratorState
-
-        return self.filter(action=PageModeratorState.ACTION_DELETE)
