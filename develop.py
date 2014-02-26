@@ -1,5 +1,6 @@
 #!/bin/env python
-from __future__ import print_function
+from __future__ import print_function, with_statement
+import contextlib
 import multiprocessing
 import pkgutil
 import pyclbr
@@ -19,12 +20,13 @@ from cms.test_utils.tmpdir import temp_dir
 __doc__ = '''django CMS development helper script. 
 
 To use a different database, set the DATABASE_URL environment variable to a
-dj-database-url compatible value.
+dj-database-url compatible value.  The AUTH_USER_MODEL environment variable can be
+used to change the user model in the same manner as the --user option.
 
 Usage:
-    develop.py test [--parallel | --failfast] [--migrate] [--user=<user>] [<test-label>...]
-    develop.py timed test [test-label...]
-    develop.py isolated test [<test-label>...] [--parallel] [--migrate]
+    develop.py test [--parallel | --failfast] [--migrate] [--user=<user>] [<test-label>...] [--xvfb]
+    develop.py timed test [test-label...] [--xvfb]
+    develop.py isolated test [<test-label>...] [--parallel] [--migrate] [--xvfb]
     develop.py server [--port=<port>] [--bind=<bind>] [--migrate] [--user=<user>]
     develop.py shell
     develop.py compilemessages
@@ -38,7 +40,8 @@ Options:
     --failfast                  Stop tests on first failure (only if not --parallel).
     --port=<port>               Port to listen on [default: 8000].
     --bind=<bind>               Interface to bind to [default: 127.0.0.1].
-    --user=<user>               Specify which user model to run tests with [default: auth.User].
+    --user=<user>               Specify which user model to run tests with (if other than auth.User).
+    --xvfb                      Use a virtual X framebuffer for frontend testing, requires xvfbwrapper to be installed.
 '''
 
 
@@ -172,43 +175,68 @@ if __name__ == '__main__':
         with temp_dir() as MEDIA_ROOT:
             use_tz = VERSION[:2] >= (1, 4)
 
-            test_settings = dict(
-                db_url=db_url,
-                ROOT_URLCONF='cms.test_utils.project.urls',
-                STATIC_ROOT=STATIC_ROOT,
-                MEDIA_ROOT=MEDIA_ROOT,
-                USE_TZ=use_tz,
-                SOUTH_TESTS_MIGRATE=migrate
-            )
+            configs = {
+                'db_url': db_url,
+                'ROOT_URLCONF': 'cms.test_utils.project.urls',
+                'STATIC_ROOT': STATIC_ROOT,
+                'MEDIA_ROOT': MEDIA_ROOT,
+                'USE_TZ': use_tz,
+                'SOUTH_TESTS_MIGRATE': migrate,
+            }
 
-            if args['--user']:
+            if args['test']:
+                configs['SESSION_ENGINE'] = "django.contrib.sessions.backends.cache"
+            
+            # Command line option takes precedent over environment variable
+            auth_user_model = args['--user']
+
+            if not auth_user_model:
+                auth_user_model = os.environ.get("AUTH_USER_MODEL", None)
+
+            if auth_user_model:
                 if VERSION[:2] < (1, 5):
                     print()
                     print("Custom user models are not supported before Django 1.5")
                     print()
                 else:
-                    test_settings['AUTH_USER_MODEL'] = args['--user']
+                    configs['AUTH_USER_MODEL'] = auth_user_model
 
-            configure(**test_settings)
+            configure(**configs)
 
             # run
             if args['test']:
-                if args['isolated']:
-                    failures = isolated(args['<test-label>'], args['--parallel'])
-                    print()
-                    print("Failed tests")
-                    print("============")
-                    if failures:
-                        for failure in failures:
-                            print(" - %s" % failure)
-                    else:
-                        print(" None")
-                    num_failures = len(failures)
-                elif args['timed']:
-                    num_failures = timed(args['<test-label>'])
+                # make "Address already in use" errors less likely, see Django
+                # docs for more details on this env variable.
+                os.environ.setdefault(
+                    'DJANGO_LIVE_TEST_SERVER_ADDRESS',
+                    'localhost:8000-9000'
+                )
+                if args['--xvfb']:
+                    import xvfbwrapper
+                    context = xvfbwrapper.Xvfb(width=1280, height=720)
                 else:
-                    num_failures = test(args['<test-label>'], args['--parallel'], args['--failfast'])
-                sys.exit(num_failures)
+                    @contextlib.contextmanager
+                    def null_context():
+                        yield
+                    context = null_context()
+
+                with context:
+                    if args['isolated']:
+                        failures = isolated(args['<test-label>'], args['--parallel'])
+                        print()
+                        print("Failed tests")
+                        print("============")
+                        if failures:
+                            for failure in failures:
+                                print(" - %s" % failure)
+                        else:
+                            print(" None")
+                        num_failures = len(failures)
+                    elif args['timed']:
+                        num_failures = timed(args['<test-label>'])
+                    else:
+                        num_failures = test(args['<test-label>'], args['--parallel'], args['--failfast'])
+                    sys.exit(num_failures)
             elif args['server']:
                 server(args['--bind'], args['--port'], migrate)
             elif args['shell']:

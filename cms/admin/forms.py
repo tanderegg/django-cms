@@ -2,6 +2,7 @@
 import sys
 from cms.apphook_pool import apphook_pool
 from cms.compat import get_user_model
+from cms.compat_forms import UserCreationForm
 from cms.forms.widgets import UserSelectAdminWidget
 from cms.models import Page, PagePermission, PageUser, ACCESS_PAGE, PageUserGroup, titlemodels
 from cms.utils.conf import get_cms_setting
@@ -12,7 +13,6 @@ from cms.utils.page_resolver import is_valid_url
 from cms.utils.permissions import get_current_user, get_subordinate_users, get_subordinate_groups, \
     get_user_permission_level
 from django import forms
-from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.sites.models import Site
@@ -68,7 +68,7 @@ class PageForm(forms.ModelForm):
     page_title = forms.CharField(label=_("Page Title"), widget=forms.TextInput(),
                                  help_text=_('Overwrites what is displayed at the top of your browser or in bookmarks'),
                                  required=False)
-    meta_description = forms.CharField(label='Description meta tag', required=False,
+    meta_description = forms.CharField(label=_('Description meta tag'), required=False,
                                        widget=forms.Textarea(attrs={'maxlength': '155', 'rows': '4'}),
                                        help_text=_('A description of the page used by search engines.'),
                                        max_length=155)
@@ -97,7 +97,7 @@ class PageForm(forms.ModelForm):
     def clean(self):
         cleaned_data = self.cleaned_data
         slug = cleaned_data.get('slug', '')
-
+        
         page = self.instance
         lang = cleaned_data.get('language', None)
         # No language, can not go further, but validation failed already
@@ -145,7 +145,7 @@ class PageForm(forms.ModelForm):
     def clean_slug(self):
         slug = slugify(self.cleaned_data['slug'])
         if not slug:
-            raise ValidationError("Slug must not be empty.")
+            raise ValidationError(_("Slug must not be empty."))
         return slug
 
     def clean_language(self):
@@ -184,6 +184,13 @@ class AdvancedSettingsForm(forms.ModelForm):
     overwrite_url = forms.CharField(label=_('Overwrite URL'), max_length=255, required=False,
                                     help_text=_('Keep this field empty if standard path should be used.'))
 
+    xframe_options = forms.ChoiceField(
+        choices=Page._meta.get_field('xframe_options').choices,
+        label=_('X Frame Options'),
+        help_text=_('Whether this page can be embedded in other pages or websites'),
+        initial=Page._meta.get_field('xframe_options').default,
+        required=False
+    )
     redirect = forms.CharField(label=_('Redirect'), max_length=255, required=False,
                                help_text=_('Redirects to this URL.'))
     language = forms.ChoiceField(label=_("Language"), choices=get_language_tuple(),
@@ -233,6 +240,16 @@ class AdvancedSettingsForm(forms.ModelForm):
             raise ValidationError(_('A instance name with this name already exists.'))
         return namespace
 
+    def clean_xframe_options(self):
+        if 'xframe_options' not in self.fields:
+            return # nothing to do, field isn't present
+
+        xframe_options = self.cleaned_data['xframe_options']
+        if xframe_options == '':
+            return Page._meta.get_field('xframe_options').default
+
+        return xframe_options
+
     def clean_overwrite_url(self):
         if 'overwrite_url' in self.fields:
             url = self.cleaned_data['overwrite_url']
@@ -243,7 +260,7 @@ class AdvancedSettingsForm(forms.ModelForm):
         model = Page
         fields = [
             'site', 'template', 'reverse_id', 'overwrite_url', 'redirect', 'soft_root', 'navigation_extenders',
-            'application_urls', 'application_namespace'
+            'application_urls', 'application_namespace', "xframe_options",
         ]
 
 
@@ -437,6 +454,12 @@ class PageUserForm(UserCreationForm, GenericCmsPermissionForm):
         if self.instance:
             return self.cleaned_data['username']
         return super(PageUserForm, self).clean_username()
+
+    # required if the User model's USERNAME_FIELD is the email field
+    def clean_email(self):
+        if self.instance:
+            return self.cleaned_data['email']
+        return super(PageUserForm, self).clean_email()
 
     def clean_password2(self):
         if self.instance and self.cleaned_data['password1'] == '' and self.cleaned_data['password2'] == '':

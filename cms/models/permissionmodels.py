@@ -1,19 +1,33 @@
 # -*- coding: utf-8 -*-
 from django.conf import settings
 from django.db import models
+from django.utils import importlib
 from django.utils.translation import ugettext_lazy as _
+from django.core.exceptions import ImproperlyConfigured
 
 from django.contrib.auth.models import Group
 from django.contrib.sites.models import Site
 
-from cms.compat import get_user_model
-from cms.compat import user_model_label
+from cms.compat import is_user_swapped, user_model_label
 from cms.models import Page
 from cms.models.managers import BasicPagePermissionManager, PagePermissionManager
 from cms.utils.helpers import reversion_register
 from cms.utils.compat.dj import force_unicode, python_2_unicode_compatible
 
-#from peak.util.proxies import LazyWrapper
+# To avoid circular dependencies, don't use cms.compat.get_user_model, and
+# don't depend on the app registry, to get the custom user model if used
+if is_user_swapped:
+    user_app_name = user_model_label.split('.')[0]
+    for app in settings.INSTALLED_APPS:
+        if user_app_name in app:
+            try:
+                User = importlib.import_module(app + ".models").User
+            except AttributeError:
+                raise ImproperlyConfigured('''
+                    DjangoCMS requires the name of custom user models to be "User"
+                ''')
+else:
+    from django.contrib.auth.models import User
 
 # NOTE: those are not just numbers!! we will do binary AND on them,
 # so pay attention when adding/changing them, or MASKs..
@@ -107,8 +121,7 @@ class PagePermission(AbstractPagePermission):
         page = self.page_id and force_unicode(self.page) or "None"
         return "%s :: %s has: %s" % (page, self.audience, force_unicode(dict(ACCESS_CHOICES)[self.grant_on]))
 
-#class PageUser(LazyWrapper(get_user_model())):
-class PageUser(get_user_model()):
+class PageUser(User):
     """Cms specific user data, required for permission system
     """
     created_by = models.ForeignKey(user_model_label, related_name="created_users")

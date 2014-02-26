@@ -46,10 +46,6 @@ class StaticPlaceholderTestCase(PluginsTestBaseCase):
 
     def get_admin(self):
         usr = self._create_user("admin", True, True)
-        #User = get_user_model()
-        #usr = User(username="admin", email="admin@django-cms.org", is_staff=True, is_superuser=True)
-        #usr.set_password("admin")
-        #usr.save()
         return usr
 
     def test_template_creation(self):
@@ -80,7 +76,7 @@ class StaticPlaceholderTestCase(PluginsTestBaseCase):
         self.assertEqual(static_placeholder.draft.cmsplugin_set.all().count(), 2)
         self.assertEqual(static_placeholder.public.cmsplugin_set.all().count(), 0)
         request = self.get_request()
-        static_placeholder.publish(request)
+        static_placeholder.publish(request, 'en')
 
     def test_move_plugin(self):
         static_placeholder_source = StaticPlaceholder.objects.create(name='foobar', code='foobar')

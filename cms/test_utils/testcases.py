@@ -6,6 +6,7 @@ from cms.test_utils.util.context_managers import (UserLoginContext,
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser, Permission
 from django.contrib.sites.models import Site
+from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.urlresolvers import reverse
 from django.template.context import Context
@@ -93,6 +94,7 @@ class BaseCMSTestCase(object):
     def _post_teardown(self):
         # Needed to clean the menu keys cache, see menu.menu_pool.clear()
         menu_pool.clear()
+        cache.clear()
         super(BaseCMSTestCase, self)._post_teardown()
         set_current_user(None)
 
@@ -141,7 +143,12 @@ class BaseCMSTestCase(object):
     def get_superuser(self):
         try:
             query = dict()
-            query[get_user_model().USERNAME_FIELD]="admin"
+
+            if get_user_model().USERNAME_FIELD != "email":
+                query[get_user_model().USERNAME_FIELD]="admin"
+            else:
+                query[get_user_model().USERNAME_FIELD]="admin@django-cms.org"
+            
             admin = get_user_model().objects.get(**query)
         except get_user_model().DoesNotExist:
             admin = self._create_user("admin", is_staff=True, is_superuser=True)
